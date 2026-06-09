@@ -103,7 +103,6 @@ class WordSphereMobileEngine {
         this.handleResize();
         this.setupTouchListeners();
 
-        // @ts-ignore
         this.resizeObserver = new (window as any).ResizeObserver(() => this.handleResize());
         this.resizeObserver.observe(this.container);
     }
@@ -532,18 +531,16 @@ export default class MobileStatsPlugin extends Plugin {
         if (existingLeaves.length > 0) {
             leaf = existingLeaves[0];
         } else {
-            // 核心修改：在手机端强制寻找文件列表，并在下方切分区域！
-            const fileExplorerLeaves = workspace.getLeavesOfType('file-explorer');
-            if (fileExplorerLeaves.length > 0) {
-                // 如果左侧有文件列表，就在文件列表下方劈出一块
-                leaf = workspace.createLeafBySplit(fileExplorerLeaves[0], 'horizontal');
-            } else {
-                // 兜底方案：如果找不到文件列表，强制插入左侧边栏
-                leaf = workspace.getLeftLeaf(false) || workspace.getLeaf(false);
+            // 核心修复：移动端不支持上下切分，因此改为放在独立的右侧滑抽屉中
+            leaf = workspace.getRightLeaf(false);
+            if (!leaf) {
+                // 如果出现意外情况导致右侧不可用，兜底放在主屏幕
+                leaf = workspace.getLeaf(false);
             }
             await leaf.setViewState({ type: VIEW_TYPE_STATS_HEATMAP_MOBILE, active: true });
         }
         
+        // 唤醒并展开右侧滑抽屉
         workspace.revealLeaf(leaf);
     }
 }
