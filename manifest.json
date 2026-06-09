@@ -1,10 +1,10 @@
 {
-  "id": "obsidian-knowledge-topology",
-  "name": "Knowledge Topology",
+  "id": "mobile-wordcloud-trends",
+  "name": "Mobile WordCloud Trends",
   "version": "1.0.0",
   "minAppVersion": "1.0.0",
-  "description": "跨端支持的 3D 知识拓扑星空与洞察看板。",
-  "author": "Your Name",
-  "authorUrl": "https://github.com/你的GitHub用户名/obsidian-knowledge-topology",
+  "description": "移动端专属：知识资产神经元拓扑网络 (全触控适配版)",
+  "author": "Li Yaoming",
+  "authorUrl": "https://github.com/liyaomingme",
   "isDesktopOnly": false
 }
