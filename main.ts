@@ -5,7 +5,7 @@ const STOP_WORDS = new Set([
     '怎么', '如果', '可以说', '这样', '很多', '非常', '进行', '然后', '可能', 
     '因为', '所以', '各位', '谢谢', '由于', '其实', '只要', '目前', '开始', 
     '自己', '就是', '需要', '问题', '产生', '使用', '发现', '这种', '那些',
-    '也是', '一样', '知道', '觉得'
+    '也是', '一样', '知道', '觉得', '时候'
 ]);
 
 // 绝对保底文案：即使扫描出错，也绝不允许白屏
@@ -256,7 +256,8 @@ async function analyzeDecorativeData(app: App) {
 
         const results = Array.from(wordData.entries())
             .sort((a, b) => b[1] - a[1])
-            .slice(0, 42) 
+            // 核心修改 1：提取数量从 42 降为 32 个，制造充足的内部留白，解决拥挤问题
+            .slice(0, 32) 
             .map(([word, value]) => ({ word, value }));
 
         if (results.length < 15) {
@@ -310,14 +311,12 @@ export default class MobileStatsPlugin extends Plugin {
             this.injectedContainer = document.createElement('div');
             this.injectedContainer.className = 'mobile-parasitic-heatmap';
             
-            // --- 核心更新：强力压低重心，修复偏上视觉，确保四周等宽 ---
+            // --- 核心更新 2：完美下坠居中黑魔法 ---
             this.injectedContainer.setAttribute('style', `
                 width: 100%;
-                /* 高度从250px微缩到220px，腾出左右呼吸感 */
-                height: 220px; 
-                /* 核心下压：增加顶部留白，抵消底部系统条视觉错位 */
-                margin-top: 45px; 
-                margin-bottom: 5px; 
+                height: 250px; 
+                margin-top: 50px; /* 增加上方推力 */
+                margin-bottom: 0px; 
                 display: flex;
                 flex-shrink: 0; 
                 justify-content: center;
@@ -325,6 +324,8 @@ export default class MobileStatsPlugin extends Plugin {
                 position: relative;
                 background-color: transparent;
                 pointer-events: none;
+                /* 终极视觉校准：直接将渲染画面强行向下平移 35px，完美填补底部空白 */
+                transform: translateY(35px); 
             `);
 
             const heatmapDiv = this.injectedContainer.createDiv({ 
@@ -337,8 +338,8 @@ export default class MobileStatsPlugin extends Plugin {
             if (heatmapWords.length === 0) return;
 
             const maxWordCount = heatmapWords[0].value;
-            // 动态半径配合收紧的 height，球体会显得更居中
-            const baseRadius = Math.max((heatmapDiv.clientWidth / 2) * 0.75, 55); 
+            // 核心修改 3：球体自身在容器内的物理半径加大，让分布更开阔
+            const baseRadius = Math.max((heatmapDiv.clientWidth / 2) * 0.85, 65); 
 
             this.sphereEngine = new WordSphereDecorativeEngine(heatmapDiv, baseRadius);
 
@@ -346,7 +347,8 @@ export default class MobileStatsPlugin extends Plugin {
                 const wordEl = document.createElement('div');
                 wordEl.innerText = word;
                 
-                const fontSize = Math.max(12, Math.min(24, 12 + (value/maxWordCount)*12));
+                // 核心修改 4：字号整体调小一圈（11~21px），配合更少的词汇量，彻底解锁“高级松弛感”
+                const fontSize = Math.max(11, Math.min(21, 11 + (value/maxWordCount)*10));
                 const fontWeight = value > maxWordCount * 0.5 ? '700' : '400'; 
 
                 wordEl.setAttr("style", `
