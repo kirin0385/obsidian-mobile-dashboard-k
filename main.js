@@ -371,11 +371,15 @@ var MobileStatsPlugin = class extends import_obsidian.Plugin {
   // 零延迟自愈构建方法
   observeAndInject() {
     try {
+      const allLeaves = this.app.workspace.getLeaves();
+      console.log("[MindDrift] All leaves:", allLeaves.map((l) => l.view.constructor.name));
       const fileExplorerLeaves = this.app.workspace.getLeavesOfType("file-explorer");
+      console.log("[MindDrift] file-explorer leaves:", fileExplorerLeaves.length);
       if (fileExplorerLeaves.length === 0)
         return;
       const fileExplorerContainer = fileExplorerLeaves[0].view.containerEl;
       const navContainer = fileExplorerContainer.querySelector(".nav-files-container");
+      console.log("[MindDrift] nav-container:", !!navContainer);
       if (!navContainer)
         return;
       if (!this.injectedContainer) {
@@ -396,7 +400,7 @@ var MobileStatsPlugin = class extends import_obsidian.Plugin {
         this.currentObserverTarget = navContainer;
       }
     } catch (e) {
-      console.error("Topology Observer Error: ", e);
+      console.error("[MindDrift] Error: ", e);
     }
   }
   // 独立出构建 UI 的方法，只在插件最初加载时跑一次

@@ -364,11 +364,18 @@ export default class MobileStatsPlugin extends Plugin {
     // 零延迟自愈构建方法
     observeAndInject() {
         try {
+            // 调试：打印所有 leaf 类型
+            const allLeaves = this.app.workspace.getLeaves();
+            console.log('[MindDrift] All leaves:', allLeaves.map(l => l.view.constructor.name));
+            
             const fileExplorerLeaves = this.app.workspace.getLeavesOfType('file-explorer');
+            console.log('[MindDrift] file-explorer leaves:', fileExplorerLeaves.length);
+            
             if (fileExplorerLeaves.length === 0) return; 
 
             const fileExplorerContainer = fileExplorerLeaves[0].view.containerEl;
             const navContainer = fileExplorerContainer.querySelector('.nav-files-container') as HTMLElement;
+            console.log('[MindDrift] nav-container:', !!navContainer);
             if (!navContainer) return;
 
             // 1. 如果还没构建寄生体，直接构建
@@ -397,7 +404,7 @@ export default class MobileStatsPlugin extends Plugin {
             }
 
         } catch (e) {
-            console.error("Topology Observer Error: ", e);
+            console.error("[MindDrift] Error: ", e);
         }
     }
 
