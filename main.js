@@ -368,20 +368,42 @@ var MobileStatsPlugin = class extends import_obsidian.Plugin {
       this.mutationObserver.disconnect();
     this.cachedWords = null;
   }
-  // 零延迟自愈构建方法
+  // 零延迟自愈构建方法 - 增强版，兼容更多视图类型
   observeAndInject() {
     try {
       const allLeaves = this.app.workspace.getLeaves();
-      console.log("[MindDrift] All leaves:", allLeaves.map((l) => l.view.constructor.name));
+      console.log("[MindDrift] All leaves:", allLeaves.map((l) => {
+        var _a, _b;
+        return ((_b = (_a = l.view) == null ? void 0 : _a.constructor) == null ? void 0 : _b.name) || "unknown";
+      }));
+      let navContainer = null;
       const fileExplorerLeaves = this.app.workspace.getLeavesOfType("file-explorer");
       console.log("[MindDrift] file-explorer leaves:", fileExplorerLeaves.length);
-      if (fileExplorerLeaves.length === 0)
-        return;
-      const fileExplorerContainer = fileExplorerLeaves[0].view.containerEl;
-      const navContainer = fileExplorerContainer.querySelector(".nav-files-container");
-      console.log("[MindDrift] nav-container:", !!navContainer);
-      if (!navContainer)
-        return;
+      if (fileExplorerLeaves.length > 0) {
+        const fileExplorerContainer = fileExplorerLeaves[0].view.containerEl;
+        navContainer = fileExplorerContainer.querySelector(".nav-files-container");
+      }
+      if (!navContainer) {
+        console.log("[MindDrift] Trying alternative search...");
+        const allDivs = document.querySelectorAll("div");
+        for (const div of allDivs) {
+          if (div.className && div.className.contains("nav")) {
+            console.log("[MindDrift] Found nav element:", div.className);
+            navContainer = div;
+            break;
+          }
+        }
+      }
+      console.log("[MindDrift] nav-container found:", !!navContainer);
+      if (!navContainer) {
+        const workspace = document.querySelector(".workspace");
+        if (workspace) {
+          console.log("[MindDrift] Using workspace as fallback");
+          navContainer = workspace;
+        } else {
+          return;
+        }
+      }
       if (!this.injectedContainer) {
         this.buildContainer(navContainer);
       }

@@ -361,22 +361,50 @@ export default class MobileStatsPlugin extends Plugin {
         this.cachedWords = null;
     }
     
-    // 零延迟自愈构建方法
+    // 零延迟自愈构建方法 - 增强版，兼容更多视图类型
     observeAndInject() {
         try {
             // 调试：打印所有 leaf 类型
             const allLeaves = this.app.workspace.getLeaves();
-            console.log('[MindDrift] All leaves:', allLeaves.map(l => l.view.constructor.name));
+            console.log('[MindDrift] All leaves:', allLeaves.map(l => l.view?.constructor?.name || 'unknown'));
             
+            // 尝试多种方式找到文件列表容器
+            let navContainer: HTMLElement | null = null;
+            
+            // 方式1: file-explorer
             const fileExplorerLeaves = this.app.workspace.getLeavesOfType('file-explorer');
             console.log('[MindDrift] file-explorer leaves:', fileExplorerLeaves.length);
             
-            if (fileExplorerLeaves.length === 0) return; 
-
-            const fileExplorerContainer = fileExplorerLeaves[0].view.containerEl;
-            const navContainer = fileExplorerContainer.querySelector('.nav-files-container') as HTMLElement;
-            console.log('[MindDrift] nav-container:', !!navContainer);
-            if (!navContainer) return;
+            if (fileExplorerLeaves.length > 0) {
+                const fileExplorerContainer = fileExplorerLeaves[0].view.containerEl;
+                navContainer = fileExplorerContainer.querySelector('.nav-files-container') as HTMLElement;
+            }
+            
+            // 方式2: 如果没找到，尝试搜索任何包含文件列表的容器
+            if (!navContainer) {
+                console.log('[MindDrift] Trying alternative search...');
+                const allDivs = document.querySelectorAll('div');
+                for (const div of allDivs) {
+                    // 查找可能包含文件/文件夹的元素
+                    if (div.className && div.className.contains('nav')) {
+                        console.log('[MindDrift] Found nav element:', div.className);
+                        navContainer = div as HTMLElement;
+                        break;
+                    }
+                }
+            }
+            
+            console.log('[MindDrift] nav-container found:', !!navContainer);
+            if (!navContainer) {
+                // 最后尝试：直接附加到 workspace
+                const workspace = document.querySelector('.workspace') as HTMLElement;
+                if (workspace) {
+                    console.log('[MindDrift] Using workspace as fallback');
+                    navContainer = workspace;
+                } else {
+                    return;
+                }
+            }
 
             // 1. 如果还没构建寄生体，直接构建
             if (!this.injectedContainer) {
