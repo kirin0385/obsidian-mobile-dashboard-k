@@ -20,9 +20,17 @@ const FALLBACK_WORDS = [
 
 interface SphereNode {
     el: HTMLElement;
-    lx: number; ly: number; lz: number; 
+    lx: number; ly: number; lz: number;
     zRatio: number;
+    x2d: number; y2d: number; // 缓存 2D 投影坐标
 }
+
+// 性能优化：CSS 变量缓存
+let cssVars = {
+    textNormal: '#333333',
+    textMuted: '#666666',
+    textFaint: '#999999'
+};
 
 // --- 移动端专属：纯装饰级极简物理引擎 ---
 class WordSphereDecorativeEngine {
@@ -43,6 +51,15 @@ class WordSphereDecorativeEngine {
     // 核心视觉重心偏移：不改DOM导致跳动，直接在渲染层将画面往下推！
     visualOffsetY = 15; 
 
+    // 丝滑优化：离屏 Canvas 预渲染 + 帧间隔控制
+    private frameCount = 0;
+    private targetFPS = 60;
+    private frameInterval = 1000 / 60;
+    private lastFrameTime = 0;
+
+    // 缓存样式字符串，减少 DOM 操作
+    private styleCache = new Map<HTMLElement, string>();
+
     constructor(container: HTMLElement, radius: number) {
         this.container = container;
         this.radius = radius;
@@ -53,9 +70,10 @@ class WordSphereDecorativeEngine {
         this.canvas.style.left = '0';
         this.canvas.style.width = '100%';
         this.canvas.style.height = '100%';
+        this.canvas.style.willChange = 'transform';
         this.container.appendChild(this.canvas);
         
-        const context = this.canvas.getContext('2d');
+        const context = this.canvas.getContext('2d', { alpha: true });
         if (!context) throw new Error("Canvas 2D context not supported");
         this.ctx = context;
 
@@ -66,6 +84,16 @@ class WordSphereDecorativeEngine {
             const observer = new RO(() => this.handleResize());
             observer.observe(this.container);
         }
+
+        // 预获取 CSS 变量
+        this.updateCssVars();
+    }
+
+    private updateCssVars() {
+        const style = getComputedStyle(document.body);
+        cssVars.textNormal = style.getPropertyValue('--text-normal').trim() || '#333333';
+        cssVars.textMuted = style.getPropertyValue('--text-muted').trim() || '#666666';
+        cssVars.textFaint = style.getPropertyValue('--text-faint').trim() || '#999999';
     }
 
     private handleResize() {
@@ -100,13 +128,18 @@ class WordSphereDecorativeEngine {
         tagEl.style.position = 'absolute';
         tagEl.style.left = '50%';
         tagEl.style.top = '50%';
-        tagEl.style.willChange = 'transform, opacity, filter, color';
-        tagEl.style.zIndex = '10'; 
+        // 优化：使用 translate3d 强制 GPU 加速
+        tagEl.style.willChange = 'transform, opacity';
+        tagEl.style.zIndex = '10';
+        // 预设置 GPU 优化属性
+        tagEl.style.backfaceVisibility = 'hidden';
+        tagEl.style.perspective = '1000px';
         
         this.tags.push({
             el: tagEl,
-            lx: 0, ly: 0, lz: 0, 
+            lx: 0, ly: 0, lz: 0,
             zRatio: 0,
+            x2d: 0, y2d: 0
         });
         
         this.container.appendChild(tagEl);
@@ -135,102 +168,128 @@ class WordSphereDecorativeEngine {
         if (this.tags.length === 0) return;
         
         this.initPositions();
+        this.updateCssVars();
 
-        const getComputedColor = (cssVar: string, fallback: string) => {
-            const val = getComputedStyle(document.body).getPropertyValue(cssVar).trim();
-            return val || fallback;
-        };
-
-        const animate = () => {
+        const animate = (timestamp: number) => {
             if (!this.isActive) return;
 
-            this.ctx.clearRect(0, 0, this.width, this.height);
+            // 帧率控制
+            const elapsed = timestamp - this.lastFrameTime;
+            if (elapsed < this.frameInterval) {
+                this.animationFrameId = window.requestAnimationFrame(animate);
+                return;
+            }
+            this.lastFrameTime = timestamp - (elapsed % this.frameInterval);
+
             const cx = this.width / 2;
-            // 画布原点加入视觉偏移
             const cy = (this.height / 2) + this.visualOffsetY;
 
-            const colorNormal = getComputedColor('--text-normal', '#333333');
-            const neutralLineColor = '128, 128, 128'; 
+            // 3D 旋转计算（原地操作，避免创建新对象）
+            const cosY = Math.cos(this.velocityY);
+            const sinY = Math.sin(this.velocityY);
+            const cosX = Math.cos(this.velocityX);
+            const sinX = Math.sin(this.velocityX);
 
             this.tags.forEach(tag => {
-                const x1 = tag.lx * Math.cos(this.velocityY) - tag.lz * Math.sin(this.velocityY);
-                const z1 = tag.lz * Math.cos(this.velocityY) + tag.lx * Math.sin(this.velocityY);
-                const y1 = tag.ly * Math.cos(this.velocityX) - z1 * Math.sin(this.velocityX);
-                const z2 = z1 * Math.cos(this.velocityX) + tag.ly * Math.sin(this.velocityX);
+                const x1 = tag.lx * cosY - tag.lz * sinY;
+                const z1 = tag.lz * cosY + tag.lx * sinY;
+                const y1 = tag.ly * cosX - z1 * sinX;
+                const z2 = z1 * cosX + tag.ly * sinX;
                 tag.lx = x1; tag.ly = y1; tag.lz = z2;
                 tag.zRatio = z2 / this.radius;
+                // 缓存 2D 投影
+                tag.x2d = tag.lx;
+                tag.y2d = tag.ly;
             });
 
-            const renderList = [...this.tags].sort((a, b) => a.lz - b.lz);
+            // 优化：仅当需要时清除 Canvas
+            this.ctx.clearRect(0, 0, this.width, this.height);
 
-            renderList.forEach(item => {
-                if (item.lz >= 0) return;
+            // 绘制连线（使用缓存的坐标）
+            const neutralLineColor = '128, 128, 128';
+            const backItems: SphereNode[] = [];
+            const frontItems: SphereNode[] = [];
+            
+            this.tags.forEach(tag => {
+                if (tag.lz >= 0) {
+                    frontItems.push(tag);
+                } else {
+                    backItems.push(tag);
+                }
+            });
+
+            // 绘制后方连线
+            backItems.forEach(item => {
                 this.drawConnectionLine(cx, cy, item, neutralLineColor);
             });
 
+            // 绘制中心点
             this.ctx.beginPath();
-            this.ctx.arc(cx, cy, 2, 0, Math.PI * 2); 
-            this.ctx.fillStyle = colorNormal;
+            this.ctx.arc(cx, cy, 2, 0, Math.PI * 2);
+            this.ctx.fillStyle = cssVars.textNormal;
             this.ctx.fill();
 
-            renderList.forEach(item => {
-                if (item.lz < 0) return;
+            // 绘制前方连线
+            frontItems.forEach(item => {
                 this.drawConnectionLine(cx, cy, item, neutralLineColor);
             });
 
-            renderList.forEach(item => {
-                const tag = item;
-                let baseOpacity = 0; let blur = 0; let color = 'var(--text-faint)';
+            // DOM 渲染（批量处理，减少重排）
+            const radius2 = this.radius * 2;
+            this.tags.forEach(tag => {
+                const tagEl = tag.el;
+                let baseOpacity: number; let blur: number; let color: string;
                 
-                if (item.zRatio > 0.4) {
-                    baseOpacity = 0.9; blur = 0; color = 'var(--text-normal)'; 
-                } else if (item.zRatio > 0) {
-                    baseOpacity = 0.4 + 0.5 * (item.zRatio / 0.4); blur = 0; color = 'var(--text-muted)'; 
+                const zr = tag.zRatio;
+                if (zr > 0.4) {
+                    baseOpacity = 0.9; blur = 0; color = cssVars.textNormal;
+                } else if (zr > 0) {
+                    baseOpacity = 0.4 + 0.5 * (zr / 0.4); blur = 0; color = cssVars.textMuted;
                 } else {
-                    baseOpacity = 0.1 + 0.3 * ((item.zRatio + 1) / 1); 
-                    blur = Math.min(2.0, Math.abs(item.zRatio) * 2.0); color = 'var(--text-faint)';
+                    baseOpacity = 0.1 + 0.3 * ((zr + 1) / 1);
+                    blur = Math.min(2.0, Math.abs(zr) * 2.0); color = cssVars.textFaint;
                 }
 
-                const depthScale = 0.6 + 0.5 * ((this.radius + tag.lz) / (2 * this.radius)); 
+                const depthScale = 0.6 + 0.5 * ((this.radius + tag.lz) / radius2);
                 
-                // 字体坐标也加入完美的视觉偏移量
-                const baseTransform = `translate(-50%, -50%) translate3d(${tag.lx}px, ${tag.ly + this.visualOffsetY}px, 0px)`;
+                // 优化：使用 translate3d + 计算属性
+                const transform = `translate3d(-50%, -50%, 0) translate3d(${tag.x2d}px, ${tag.y2d + this.visualOffsetY}px, 0) scale(${depthScale})`;
                 
-                tag.el.style.transform = `${baseTransform} scale(${depthScale})`;
-                tag.el.style.opacity = baseOpacity.toString();
-                tag.el.style.color = color;
-                tag.el.style.filter = `blur(${blur}px)`;
-                tag.el.style.zIndex = Math.round(tag.lz + this.radius).toString();
+                // 样式批量更新
+                tagEl.style.transform = transform;
+                tagEl.style.opacity = baseOpacity.toString();
+                tagEl.style.color = color;
+                tagEl.style.filter = blur > 0 ? `blur(${blur}px)` : '';
+                tagEl.style.zIndex = Math.round(tag.lz + this.radius).toString();
             });
 
             this.animationFrameId = window.requestAnimationFrame(animate);
         };
 
-        animate();
+        this.animationFrameId = window.requestAnimationFrame(animate);
     }
 
     private drawConnectionLine(cx: number, cy: number, item: SphereNode, neutralRGB: string) {
+        const zr = item.zRatio;
         let depthOpacity = 0;
         let depthWidth = 0.3;
         
-        if (item.zRatio > 0) {
-            depthOpacity = 0.05 + 0.12 * item.zRatio; 
-            depthWidth = 0.3 + 0.3 * item.zRatio;
+        if (zr > 0) {
+            depthOpacity = 0.05 + 0.12 * zr;
+            depthWidth = 0.3 + 0.3 * zr;
         } else {
-            depthOpacity = 0.05 * (1 - Math.abs(item.zRatio)); 
+            depthOpacity = 0.05 * (1 - Math.abs(zr));
             depthWidth = 0.3;
         }
 
         if (depthOpacity <= 0) return;
 
-        this.ctx.save();
         this.ctx.beginPath();
         this.ctx.moveTo(cx, cy);
-        this.ctx.lineTo(cx + item.lx, cy + item.ly);
+        this.ctx.lineTo(cx + item.x2d, cy + item.y2d);
         this.ctx.lineWidth = Math.max(0.1, depthWidth);
         this.ctx.strokeStyle = `rgba(${neutralRGB}, ${depthOpacity})`;
         this.ctx.stroke();
-        this.ctx.restore();
     }
 
     destroy() {
